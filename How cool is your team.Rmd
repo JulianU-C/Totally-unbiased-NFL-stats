@@ -1,0 +1,346 @@
+---
+title: "More Football Stats: Coolness"
+author: "JUC"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    fig_width: 6
+    fig_height: 10
+editor_options: 
+  chunk_output_type: console
+---
+## How boring is your team to watch?
+I'll try to gather all the exciting plays and other variables that influence how 'cool' your team is to watch
+
+<br>
+
+*Dataset is from NFLsavant.com accessed 3/1/25* 
+<br>
+
+I'm going into Excel and deleting blank columns beforehand
+
+```{r load data, warning=FALSE, message=FALSE}
+setwd("C:/Users/Owner/Desktop/FootballStats/CoolRating")
+pbp2024 <- read.csv("pbp-2024.csv") # 53,283 rows 41 columns
+
+## Data Manipulation
+## -----------------------------------------------------------------------------
+library(tidyr)
+library(dplyr)
+library(stringr)
+
+nfc <- c("DAL", "NYG", "PHI", "WAS",
+         "CHI", "DET", "GB", "MIN",
+         "ATL", "CAR", "NO", "TB",
+         "ARI", "SF", "SEA", "LA")
+afc <- c("BUF", "MIA", "NE", "NYJ",
+         "BAL", "PIT", "CIN", "CLE",
+         "HOU", "IND", "JAX", "TEN",
+         "DEN","KC","LV","LAC")
+
+# 1. convert variables to factor
+# 2. remove 0 down (timeouts, clock run out, etc.)
+# 3. add quarter window (start, middle, end)
+pbp2024 <- pbp2024 %>% 
+  mutate(Quarter = as.factor(Quarter),
+         Down = as.factor(Down)) %>% 
+  filter(!(Down == 0)) %>% 
+  mutate(qtrWindow = case_when(
+    Minute < 5 ~ "end",
+    Minute >= 5 & Minute < 10 ~ "middle",
+    Minute >= 10 ~ "start",
+    TRUE ~ NA_character_)) %>%
+  mutate(qtrWindow = factor(qtrWindow, levels = c("start","middle","end"))) %>% 
+  mutate(moneyTime = case_when(qtrWindow == "end" & Quarter == 4 ~ 1, TRUE ~ 0))
+str(pbp2024)
+
+# 4. assign Weeks 1 - 18 according to GameID code: YearMonthDayID (ID is # 0-16)
+pbp2024 <- pbp2024 %>% mutate(week = case_when(
+  GameId >= 2024090500 & GameId <= 2024090999 ~ 1,
+  GameId >= 2024091200 & GameId <= 2024091699 ~ 2,
+  GameId >= 2024091900 & GameId <= 2024092399 ~ 3,
+  GameId >= 2024092600 & GameId <= 2024093099 ~ 4,
+  GameId >= 2024100300 & GameId <= 2024100799 ~ 5,
+  GameId >= 2024101000 & GameId <= 2024101499 ~ 6,
+  GameId >= 2024101700 & GameId <= 2024102199 ~ 7,
+  GameId >= 2024102400 & GameId <= 2024102899 ~ 8,
+  GameId >= 2024103100 & GameId <= 2024110499 ~ 9,
+  GameId >= 2024110700 & GameId <= 2024111199 ~ 10,
+  GameId >= 2024111400 & GameId <= 2024111899 ~ 11,
+  GameId >= 2024112100 & GameId <= 2024112599 ~ 12,
+  GameId >= 2024112800 & GameId <= 2024120299 ~ 13,
+  GameId >= 2024120500 & GameId <= 2024120999 ~ 14,
+  GameId >= 2024121200 & GameId <= 2024121699 ~ 15,
+  GameId >= 2024121900 & GameId <= 2024122399 ~ 16,
+  GameId >= 2024122500 & GameId <= 2024123099 ~ 17,
+  GameId >= 2025010400 & GameId <= 2025010599 ~ 18,
+)) %>% 
+  drop_na(week) # excluding playoffs
+```
+
+```{r Data manipulation}
+## 1. More data manipulation, adding cool variables
+## -----------------------------------------------------------------------------
+pbp2024.1 <- pbp2024 %>% 
+  mutate(
+    longPass = case_when(PlayType %in% c("PASS") & Yards >= 20 & IsTouchdown == 0 ~ 1, TRUE ~ 0),
+    longRun = case_when(PlayType %in% c("RUN") & Yards >= 15 & IsTouchdown == 0 ~ 1, TRUE ~ 0),
+    bomb = case_when(PlayType %in% c("PASS") & Yards >= 35 & IsTouchdown == 1 ~ 1, TRUE ~ 0),
+    salisbury = case_when(PlayType %in% c("RUN") & Yards >= 30 & IsTouchdown == 1 ~ 1, TRUE ~ 0),
+    bigNuts = case_when(Quarter != 4 & Down == 4 & PlayType %in% c("PASS", "RUSH","SCRAMBLE") ~ 1, TRUE ~ 0),
+    pickSix = case_when(IsInterception == 1 & IsTouchdown == 1 ~ 1, TRUE ~ 0),
+    fumbleRooski = case_when(IsFumble == 1 & IsTouchdown == 1 ~ 1, TRUE ~ 0),
+    needIt = case_when(Down == 4 & IsTouchdown == 1 ~ 1, TRUE ~ 0),
+    kickerGlory = case_when(Minute < 1 & Quarter == 4 & PlayType %in% c("FIELD GOAL") ~ 1, TRUE ~ 0),
+    sackTastic = case_when((Down == 3 | Down == 4) & PlayType %in% c("SACK") ~ 1, TRUE ~ 0),
+    getBack = case_when(Yards < -1 ~ 1 & (Quarter == 4|2) & qtrWindow  %in% c("end"), TRUE ~ 0)
+    )
+
+## 2. Aura
+## -----------------------------------------------------------------------------
+auraPlayers <- c("J\\.DANIELS","J\\. HURTS", "P\\.MAHOMES","T\\.KELCE",
+                 "C\\.MCCAFFREY","J\\.BURROW","J\\.JEFFERSON","J\\.ALLEN",
+                 "L\\.JACKSON","C\\.LAMB","T\\.HILL","G\\.KITTLE",
+                 "C\\.STROUD","D\\.SAMUEL","J\\.CHASE", "D\\.HENRY",
+                 "M\\.EVANS","T\\.MCLAURIN","S\\.BARKLEY")
+
+pbp2024.2 <- pbp2024.1 %>% 
+  mutate(auraTD = case_when(
+    str_detect(Description, paste(auraPlayers, collapse = "|")) & IsTouchdown == 1 ~ 1, TRUE ~ 0)) %>% 
+  rowwise() %>% 
+  mutate(coolRateOffPlay = sum(c_across(c("longPass", "longRun", "bomb",
+                                          "salisbury", "bigNuts", "needIt",
+                                          "IsTouchdown", "auraTD")), na.rm = TRUE))
+
+## 3. Coolness factor
+## -----------------------------------------------------------------------------
+coolRateOffense <- pbp2024.2 %>% 
+  group_by(OffenseTeam) %>%
+  summarise(
+  longPasses = sum(longPass),
+  longRuns = sum(longRun),
+  bombs = sum(bomb),
+  salisburys = sum(salisbury),
+  bigNuts = sum(bigNuts),
+  pickSixes = sum(pickSix),
+  fumbleRooskis = sum(fumbleRooski),
+  needIts = sum(needIt),
+  kickerGlorys = sum(kickerGlory),
+  sackTastics = sum(sackTastic),
+  getBacks = sum(getBack),
+  auraTDs = sum(auraTD),
+  IsTouchdown = sum(IsTouchdown),
+  IsInterception= sum(IsInterception),
+  IsFumble = sum(IsInterception),
+  IsSack = sum(IsSack),
+  coolness = longPasses + longRuns + bombs +
+    salisburys + needIts + kickerGlorys + auraTDs + IsTouchdown) %>% 
+  mutate(conference = case_when(OffenseTeam %in% nfc ~ "NFC",
+                                OffenseTeam %in% afc ~ "AFC"))
+
+# minus getting cooked
+coolRateOffense.cooked <- pbp2024.2 %>% 
+  group_by(OffenseTeam) %>%
+  summarise(
+  longPasses = sum(longPass),
+  longRuns = sum(longRun),
+  bombs = sum(bomb),
+  salisburys = sum(salisbury),
+  bigNuts = sum(bigNuts),
+  pickSixes = sum(pickSix),
+  fumbleRooskis = sum(fumbleRooski),
+  needIts = sum(needIt),
+  kickerGlorys = sum(kickerGlory),
+  sackTastics = sum(sackTastic),
+  getBacks = sum(getBack),
+  auraTDs = sum(auraTD),
+  IsTouchdown = sum(IsTouchdown),
+  IsInterception= sum(IsInterception),
+  IsFumble = sum(IsInterception),
+  IsSack = sum(IsSack),
+  coolness = longPasses + longRuns + bombs +
+    salisburys + needIts + kickerGlorys + auraTDs + IsTouchdown -
+    IsInterception - IsFumble - IsSack) %>% 
+  mutate(conference = case_when(OffenseTeam %in% nfc ~ "NFC",
+                                OffenseTeam %in% afc ~ "AFC"))
+
+```
+
+```{r Offense cool plays, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(patchwork)
+
+theme_set(theme_classic() +
+            theme(panel.spacing.x = unit(2, "lines")) +
+            theme(axis.title.x = element_text(vjust = -1))
+            )
+
+NFCcolors <- c("#97233F", "#0A0A0A", "#00BFFF", "#0B162A", "#B2DFEE", "#0076B6", "#203731", "#003594", "#4F2683", "#D3BC8D", "#0000CD", "#004C54", "#69BE28", "#B3995D", "#D50A0A", "#773141")
+
+AFCcolors <- c("#241773", "#00338D", "#FB4F14", "#311D00", "#FA4616", "#03202F", "#002C5F", "#006778", "#E31837", "#0080C6", "#000000", "#008E97", "#27408B", "#125740", "#FFB612", "#4B92DB")
+
+## 1. count of cool offense plays (and game winning FGs)
+## -----------------------------------------------------------------------------
+coolNFC <- coolRateOffense %>% filter(OffenseTeam %in% nfc)
+coolAFC <- coolRateOffense %>% filter(OffenseTeam %in% afc)
+
+NFCplot <- ggplot(coolNFC, aes(x = OffenseTeam, y = coolness)) +
+  geom_col(aes(fill = OffenseTeam), color = NFCcolors) +
+  scale_fill_manual(values = NFCcolors) +
+  ylim(0, 220) +
+  theme(legend.position = "none") +
+  labs(y = "Cool offense plays", x = "",
+       subtitle = "National Football Conference")
+  
+AFCplot <- ggplot(coolAFC, aes(x = OffenseTeam, y = coolness)) +
+  geom_col(aes(fill = OffenseTeam), color = AFCcolors) +
+  scale_fill_manual(values = AFCcolors) +
+  ylim(0, 220) +
+  theme(legend.position = "none") +
+  labs(y = "Cool offense plays", x = "",
+       subtitle = "American Football Conference")
+
+NFCplot / AFCplot
+
+## 2. Cool offense = Cool offense plays - Defense cooking you
+## -----------------------------------------------------------------------------
+coolNFC.cooked <- coolRateOffense.cooked %>% filter(OffenseTeam %in% nfc)
+coolAFC.cooked <- coolRateOffense.cooked %>% filter(OffenseTeam %in% afc)
+
+NFCplot.cooked <- ggplot(coolNFC.cooked, aes(x = OffenseTeam, y = coolness)) +
+  geom_col(aes(fill = OffenseTeam), color = NFCcolors) +
+  scale_fill_manual(values = NFCcolors) +
+  ylim(-50, 180) +
+  theme(legend.position = "none") +
+  labs(y = "Offense watchable-ness", x = "",
+       subtitle = "National Football Conference")
+
+AFCplot.cooked <- ggplot(coolAFC.cooked, aes(x = OffenseTeam, y = coolness)) +
+  geom_col(aes(fill = OffenseTeam), color = AFCcolors) +
+  scale_fill_manual(values = AFCcolors) +
+  ylim(-50, 180) +
+  theme(legend.position = "none") +
+  labs(y = "Offense watchable-ness", x = "",
+       subtitle = "American Football Conference")
+  
+NFCplot.cooked / AFCplot.cooked
+```
+
+```{r Over the season, warning = FALSE}
+## 1. Another data manip to get weekly sums of cool plays
+## -----------------------------------------------------------------------------
+coolRateOffense.season <- pbp2024.2 %>% 
+  group_by(OffenseTeam, week) %>% 
+  summarise(
+  longPasses = sum(longPass),
+  longRuns = sum(longRun),
+  bombs = sum(bomb),
+  salisburys = sum(salisbury),
+  bigNuts = sum(bigNuts),
+  pickSixes = sum(pickSix),
+  fumbleRooskis = sum(fumbleRooski),
+  needIts = sum(needIt),
+  kickerGlorys = sum(kickerGlory),
+  sackTastics = sum(sackTastic),
+  getBacks = sum(getBack),
+  auraTDs = sum(auraTD),
+  IsTouchdown = sum(IsTouchdown),
+  IsInterception= sum(IsInterception),
+  IsFumble = sum(IsInterception),
+  IsSack = sum(IsSack),
+  coolness = longPasses + longRuns + bombs + salisburys + needIts +
+    kickerGlorys + auraTDs + IsTouchdown) %>% 
+  mutate(conference = case_when(OffenseTeam %in% nfc ~ "NFC",
+                                OffenseTeam %in% afc ~ "AFC"))
+
+coolNFC.season <- coolRateOffense.season %>% filter(OffenseTeam %in% nfc)
+coolAFC.season <- coolRateOffense.season %>% filter(OffenseTeam %in% afc)
+
+## 2. Trend of cool plays throughout the regular season
+## -----------------------------------------------------------------------------
+coolTrendOff.nfc <- ggplot(data = coolNFC.season, 
+                         aes(x = as.factor(week), y = coolness, color = OffenseTeam)) +
+    geom_point() +
+    geom_line(aes(group = OffenseTeam), linewidth = 1) +
+    scale_color_manual(values = NFCcolors)
+
+
+coolTrendOff.afc <- ggplot(data = coolAFC.season, 
+                         aes(x = as.factor(week), y = coolness, color = OffenseTeam)) +
+    geom_point() +
+    geom_line(aes(group = OffenseTeam), linewidth = 1) +
+    scale_color_manual(values = AFCcolors)
+
+coolTrendOff.nfc / coolTrendOff.afc
+
+## 3. Lets look at each division
+## -----------------------------------------------------------------------------
+coolNFC.season <- coolNFC.season %>% 
+  mutate(division = case_when(OffenseTeam %in% c("TB", "NO", "CAR", "ATL") ~ "south",
+                              OffenseTeam %in% c("PHI", "DAL", "NYG", "WAS") ~ "east",
+                              OffenseTeam %in% c("SF", "LA", "ARI", "SEA") ~ "west",
+                              OffenseTeam %in% c("DET", "MIN", "GB", "CHI") ~ "north",
+                              ))
+
+coolAFC.season <- coolAFC.season %>% 
+  mutate(division = case_when(OffenseTeam %in% c("JAX", "IND", "TEN", "HOU") ~ "south",
+                              OffenseTeam %in% c("NE", "BUF", "NYJ", "MIA") ~ "east",
+                              OffenseTeam %in% c("DEN", "LAC", "KC", "LV") ~ "west",
+                              OffenseTeam %in% c("BAL", "PIT", "CLE", "CIN") ~ "north",
+                              ))
+
+# NFC east
+coolNFCEast.season <- coolNFC.season %>% filter(division %in% "east")
+NFCEastcolors <- c("#B2DFEE", "#0000CD", "#004C54", "#773141")
+(coolTrendOff.nfcEast  <- ggplot(data = coolNFCEast.season, aes(x = as.factor(week), y = coolness, color = OffenseTeam)) +
+  geom_point() +
+  geom_line(aes(group = OffenseTeam), linewidth = 1) +
+  scale_color_manual(values = NFCEastcolors) +
+  labs(x = "Regular season week", y = "Cool offense", subtitle = "NFC East")
+  )
+# NFC west
+coolNFCWest.season <- coolNFC.season %>% filter(division %in% "west")
+NFCWestcolors <- c("#97233F", "#003594", "#69BE28", "#B3995D")
+(coolTrendOff.nfcWest  <- ggplot(data = coolNFCWest.season, aes(x = as.factor(week), y = coolness, color = OffenseTeam)) +
+  geom_point() +
+  geom_line(aes(group = OffenseTeam), linewidth = 1) +
+  scale_color_manual(values = NFCWestcolors) +
+  labs(x = "Regular season week", y = "Cool offense", subtitle = "NFC West")
+  )  
+# NFC north
+coolNFCNorth.season <- coolNFC.season %>% filter(division %in% "north")
+NFCNorthcolors <- c("#0B162A", "#0076B6", "#FFB612", "#4F2683")
+(coolTrendOff.nfcNorth  <- ggplot(data = coolNFCNorth.season, aes(x = as.factor(week), y = coolness, color = OffenseTeam)) +
+  geom_point() +
+  geom_line(aes(group = OffenseTeam), linewidth = 1) +
+  scale_color_manual(values = NFCNorthcolors) +
+  labs(x = "Regular season week", y = "Cool offense", subtitle = "NFC North")
+  )    
+# NFC south
+coolNFCSouth.season <- coolNFC.season %>% filter(division %in% "south")
+NFCSouthcolors <- c("#0A0A0A", "#00BFFF", "#D3BC8D", "#D50A0A")
+(coolTrendOff.nfcSouth  <- ggplot(data = coolNFCSouth.season, aes(x = as.factor(week), y = coolness, color = OffenseTeam)) +
+  geom_point() +
+  geom_line(aes(group = OffenseTeam), linewidth = 1) +
+  scale_color_manual(values = NFCSouthcolors) +
+  labs(x = "Regular season week", y = "Cool offense", subtitle = "NFC South")
+  )    
+
+(coolTrendOff.nfcEast + coolTrendOff.nfcWest) / (coolTrendOff.nfcNorth + coolTrendOff.nfcSouth)
+
+AFCcolors <- c("#241773", "#00338D", "#FB4F14", "#311D00", "#FA4616", "#03202F", "#002C5F", "#006778", "#E31837", "#0080C6", "#000000", "#008E97", "#27408B", "#125740", "#FFB612", "#4B92DB")
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
